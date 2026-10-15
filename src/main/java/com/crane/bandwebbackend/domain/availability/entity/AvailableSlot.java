@@ -30,4 +30,11 @@ public class AvailableSlot extends BaseCreatedTimeEntity {
     // ck_available_slot_align: 분은 0 또는 30, 초·마이크로초는 0. 슬롯 = [slotStart, slotStart + 30분)
     @Id
     private LocalDateTime slotStart;
+
+    public static AvailableSlot of(PerformanceMember performanceMember, LocalDateTime slotStart) {
+        AvailableSlot slot = new AvailableSlot();
+        slot.performanceMember = performanceMember;
+        slot.slotStart = slotStart;
+        return slot;
+    }
 }

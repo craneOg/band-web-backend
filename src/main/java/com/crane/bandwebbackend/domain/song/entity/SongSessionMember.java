@@ -47,4 +47,13 @@ public class SongSessionMember extends BaseCreatedTimeEntity {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "part_id", nullable = false)
     private Part part;
+
+    public static SongSessionMember of(Song song, PerformanceMember performanceMember, Part part) {
+        SongSessionMember m = new SongSessionMember();
+        m.song = song;
+        m.performanceId = song.getPerformance().getId();
+        m.performanceMember = performanceMember;
+        m.part = part;
+        return m;
+    }
 }
