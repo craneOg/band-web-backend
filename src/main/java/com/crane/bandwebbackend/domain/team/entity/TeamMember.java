@@ -48,4 +48,13 @@ public class TeamMember extends BaseCreatedTimeEntity {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "part_id")
     private Part part;
+
+    public static TeamMember of(Team team, PerformanceMember performanceMember, Part part) {
+        TeamMember m = new TeamMember();
+        m.team = team;
+        m.performanceId = team.getPerformance().getId();
+        m.performanceMember = performanceMember;
+        m.part = part;
+        return m;
+    }
 }
