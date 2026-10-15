@@ -84,15 +84,18 @@ public class TeamService {
                 access.getPerformance(), teamName, TeamSource.FROM_SESSIONS, access.getMembership().getUser()));
         Map<PerformanceMember, Part> firstPart = new LinkedHashMap<>();
         sessions.forEach(s -> firstPart.putIfAbsent(s.getPerformanceMember(), s.getPart()));
-        firstPart.forEach((pm, part) -> teamMemberRepository.save(TeamMember.of(team, pm, part)));
+        teamMemberRepository.saveAll(firstPart.entrySet().stream()
+                .map(e -> TeamMember.of(team, e.getKey(), e.getValue()))
+                .toList());
         song.assignTeam(team);
         return team;
     }
 
     // T-07 기본값 "n팀": 공연의 모든 상태 팀 수 + 1부터 비어 있는 번호
     private String defaultName(Long performanceId) {
-        long n = teamRepository.countByPerformanceId(performanceId) + 1;
-        while (teamRepository.existsByPerformanceIdAndName(performanceId, n + "팀")) {
+        Set<String> taken = teamRepository.findNamesByPerformanceId(performanceId);
+        int n = taken.size() + 1;
+        while (taken.contains(n + "팀")) {
             n++;
         }
         return n + "팀";
@@ -141,7 +144,7 @@ public class TeamService {
         access.requireEditable();
         Team team = getTeam(performanceId, teamId);
         requireOwnerOrAdmin(access, team);
-        checkVersion(team, req.getVersion());
+        team.verifyVersion(req.getVersion());
         PerformanceMember leader = accessService.getMember(performanceId, req.getPerformanceMemberId());
         if (!isMember(teamId, leader.getId())) {
             throw new BusinessException(ErrorCode.RULE_VIOLATION, "팀장은 팀원 중에서 지정해야 합니다.");
@@ -165,7 +168,7 @@ public class TeamService {
         } else {
             requireOwnerOrAdmin(access, team);
         }
-        checkVersion(team, req.getVersion());
+        team.verifyVersion(req.getVersion());
         action.accept(access, team);
         teamRepository.flush();
         return TeamResponse.from(team);
@@ -181,12 +184,6 @@ public class TeamService {
         boolean leader = pm != null && team.getLeader() != null && team.getLeader().getId().equals(pm.getId());
         if (!team.getCreatedBy().getId().equals(userId) && !leader) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "팀장이나 팀을 만든 사람만 할 수 있습니다.");
-        }
-    }
-
-    private static void checkVersion(Team team, Long version) {
-        if (!team.getVersion().equals(version)) {
-            throw new BusinessException(ErrorCode.VERSION_CONFLICT, "다른 사람이 먼저 수정했습니다. 새로고침 후 다시 시도해 주세요.");
         }
     }
 }

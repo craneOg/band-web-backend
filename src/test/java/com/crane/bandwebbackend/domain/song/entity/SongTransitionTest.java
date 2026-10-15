@@ -6,8 +6,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.crane.bandwebbackend.domain.team.entity.Team;
 import com.crane.bandwebbackend.domain.team.entity.TeamSource;
 import com.crane.bandwebbackend.global.error.BusinessException;
+import com.crane.bandwebbackend.global.error.ErrorCode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 class SongTransitionTest {
 
@@ -84,5 +86,17 @@ class SongTransitionTest {
         Song song = proposed();
         song.changeSetlistOrder(null);
         assertThatThrownBy(() -> song.changeSetlistOrder(1)).isInstanceOf(BusinessException.class);
+    }
+
+    @Test
+    @DisplayName("화면이 본 버전과 다르면 VERSION_CONFLICT")
+    void verifyVersion() {
+        Song song = proposed();
+        ReflectionTestUtils.setField(song, "version", 2L);
+        song.verifyVersion(2L);
+        assertThatThrownBy(() -> song.verifyVersion(1L))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.VERSION_CONFLICT);
     }
 }

@@ -21,6 +21,7 @@ import jakarta.persistence.UniqueConstraint;
 import jakarta.persistence.Version;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.Objects;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -137,6 +138,13 @@ public class Team extends BaseTimeEntity {
             throw invalidTransition();
         }
         this.leader = leader;
+    }
+
+    // 화면이 본 버전과 다르면 409(낙관적 락 대상). 실제 갱신 충돌은 @Version이 한 번 더 막음
+    public void verifyVersion(Long expected) {
+        if (!Objects.equals(version, expected)) {
+            throw new BusinessException(ErrorCode.VERSION_CONFLICT, "다른 사람이 먼저 수정했습니다. 새로고침 후 다시 시도해 주세요.");
+        }
     }
 
     private void requireStatus(TeamStatus expected) {

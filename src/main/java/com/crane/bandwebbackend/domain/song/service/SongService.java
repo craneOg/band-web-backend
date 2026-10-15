@@ -3,6 +3,7 @@ package com.crane.bandwebbackend.domain.song.service;
 import com.crane.bandwebbackend.domain.participant.entity.PerformanceMember;
 import com.crane.bandwebbackend.domain.participant.service.PerformanceAccess;
 import com.crane.bandwebbackend.domain.participant.service.PerformanceAccessService;
+import com.crane.bandwebbackend.domain.part.entity.Part;
 import com.crane.bandwebbackend.domain.performance.entity.CandidateScope;
 import com.crane.bandwebbackend.domain.performance.entity.PerformancePolicy;
 import com.crane.bandwebbackend.domain.song.dto.SongConfirmRequest;
@@ -114,7 +115,7 @@ public class SongService {
     public SongResponse confirm(Long performanceId, Long songId, Long userId, SongConfirmRequest req) {
         PerformanceAccess access = adminForUpdate(performanceId, userId);
         Song song = getSong(performanceId, songId);
-        checkVersion(song, req.getVersion());
+        song.verifyVersion(req.getVersion());
 
         Team team = req.getAssignedTeamId() == null
                 ? null
@@ -145,9 +146,9 @@ public class SongService {
     // API-082 탈락. CONFIRMED → REJECTED도 한 번에(경고)
     @Transactional
     public SongResponse reject(Long performanceId, Long songId, Long userId, SongDecisionRequest req) {
-        PerformanceAccess access = adminForUpdate(performanceId, userId);
+        PerformanceAccess access = admin(accessService.get(performanceId, userId));
         Song song = getSong(performanceId, songId);
-        checkVersion(song, req.getVersion());
+        song.verifyVersion(req.getVersion());
         SongStatus before = song.getStatus();
         List<String> warnings = before == SongStatus.CONFIRMED
                 ? List.of("선정곡을 탈락 처리했습니다. 담당 팀과 세트리스트 순서가 해제되었습니다.")
@@ -172,7 +173,7 @@ public class SongService {
         PerformanceAccess access = accessService.get(performanceId, userId);
         access.requireEditable();
         Song song = getSong(performanceId, songId);
-        checkVersion(song, req.getVersion());
+        song.verifyVersion(req.getVersion());
         boolean proposer = song.getProposedBy().getId().equals(access.getMembership().getId());
         if (access.isAdmin()) {
             song.withdraw(proposer ? WithdrawalType.PROPOSER : WithdrawalType.ADMIN);
@@ -189,9 +190,9 @@ public class SongService {
     // API-084 담당 팀 지정(PUT 하위 리소스)
     @Transactional
     public SongResponse assignTeam(Long performanceId, Long songId, Long userId, SongTeamRequest req) {
-        PerformanceAccess access = adminForUpdate(performanceId, userId);
+        PerformanceAccess access = admin(accessService.get(performanceId, userId));
         Song song = getSong(performanceId, songId);
-        checkVersion(song, req.getVersion());
+        song.verifyVersion(req.getVersion());
         if (req.getTeamId() == null && access.isLocked()) {
             throw new BusinessException(ErrorCode.RULE_VIOLATION, "확정된 공연에서는 담당 팀을 해제할 수 없습니다.");
         }
@@ -215,7 +216,7 @@ public class SongService {
     }
 
     public List<Song> getConfirmedSongs(Long performanceId) {
-        return songRepository.findByPerformanceIdAndStatus(performanceId, SongStatus.CONFIRMED);
+        return getSongs(performanceId, List.of(SongStatus.CONFIRMED));
     }
 
     // 순서 일괄 변경: uk_song_setlist_order 때문에 한 트랜잭션에서 NULL로 비운 뒤 재부여
@@ -229,17 +230,21 @@ public class SongService {
 
     private SongResponse decide(
             Long performanceId, Long songId, Long userId, SongDecisionRequest req, Consumer<Song> action) {
-        PerformanceAccess access = adminForUpdate(performanceId, userId);
+        PerformanceAccess access = admin(accessService.get(performanceId, userId));
         Song song = getSong(performanceId, songId);
-        checkVersion(song, req.getVersion());
+        song.verifyVersion(req.getVersion());
         SongStatus before = song.getStatus();
         action.accept(song);
         audit(access, song, before, req.getDecisionNote());
         return respond(song, List.of());
     }
 
+    // 공연 잠금은 여러 곡에 걸친 조건(세트리스트 순서, 팀 이름)을 볼 때만
     private PerformanceAccess adminForUpdate(Long performanceId, Long userId) {
-        PerformanceAccess access = accessService.getForUpdate(performanceId, userId);
+        return admin(accessService.getForUpdate(performanceId, userId));
+    }
+
+    private static PerformanceAccess admin(PerformanceAccess access) {
         access.requireAdmin();
         access.requireEditable();
         return access;
@@ -247,18 +252,23 @@ public class SongService {
 
     private void replaceSessionMembers(
             PerformanceAccess access, Song song, List<SongConfirmRequest.SessionMemberRequest> members) {
-        Long performanceId = access.getPerformance().getId();
         Set<String> seen = new HashSet<>();
-        sessionMemberRepository.deleteBySongId(song.getId());
         for (SongConfirmRequest.SessionMemberRequest m : members) {
             if (!seen.add(m.getPerformanceMemberId() + ":" + m.getPartId())) {
                 throw new BusinessException(ErrorCode.VALIDATION_ERROR, "같은 연주자·파트가 중복되었습니다.");
             }
-            sessionMemberRepository.save(SongSessionMember.of(
-                    song,
-                    accessService.getMember(performanceId, m.getPerformanceMemberId()),
-                    accessService.getActivePart(access.clubId(), m.getPartId())));
         }
+        // 사람·파트를 각각 한 쿼리로(N+N → 2)
+        Map<Long, PerformanceMember> pms = accessService.getMembers(
+                access.getPerformance().getId(),
+                members.stream().map(SongConfirmRequest.SessionMemberRequest::getPerformanceMemberId).toList());
+        Map<Long, Part> parts = accessService.getActiveParts(
+                access.clubId(),
+                members.stream().map(SongConfirmRequest.SessionMemberRequest::getPartId).toList());
+        sessionMemberRepository.deleteBySongId(song.getId());
+        sessionMemberRepository.saveAll(members.stream()
+                .map(m -> SongSessionMember.of(song, pms.get(m.getPerformanceMemberId()), parts.get(m.getPartId())))
+                .toList());
     }
 
     // 버전 증가를 응답에 반영
@@ -276,11 +286,5 @@ public class SongService {
                 song.getId(),
                 reason,
                 "{\"from\":\"" + before + "\",\"to\":\"" + song.getStatus() + "\"}"));
-    }
-
-    private static void checkVersion(Song song, Long version) {
-        if (!song.getVersion().equals(version)) {
-            throw new BusinessException(ErrorCode.VERSION_CONFLICT, "다른 사람이 먼저 수정했습니다. 새로고침 후 다시 시도해 주세요.");
-        }
     }
 }

@@ -2,7 +2,9 @@ package com.crane.bandwebbackend.domain.team.repository;
 
 import com.crane.bandwebbackend.domain.team.entity.Team;
 import java.util.Optional;
+import java.util.Set;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 
 public interface TeamRepository extends JpaRepository<Team, Long> {
 
@@ -11,5 +13,6 @@ public interface TeamRepository extends JpaRepository<Team, Long> {
     // 공연의 모든 상태 팀 이름 기준(T-07). 컬럼 콜레이션이 대소문자 구분 없음
     boolean existsByPerformanceIdAndName(Long performanceId, String name);
 
-    long countByPerformanceId(Long performanceId);
+    @Query("select t.name from Team t where t.performance.id = :performanceId")
+    Set<String> findNamesByPerformanceId(Long performanceId);
 }

@@ -16,8 +16,6 @@ public interface SongRepository extends JpaRepository<Song, Long> {
 
     List<Song> findByPerformanceIdAndStatusInOrderById(Long performanceId, Collection<SongStatus> statuses);
 
-    List<Song> findByPerformanceIdAndStatus(Long performanceId, SongStatus status);
-
     // S-03: WITHDRAWN은 1인 한도에서 제외
     long countByPerformanceIdAndProposedByIdAndStatusNot(Long performanceId, Long membershipId, SongStatus status);
 
